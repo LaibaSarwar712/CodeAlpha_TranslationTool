@@ -27,7 +27,9 @@ streamlit run app.py
 4. gTTS converts the translated text into audio.
 
 ## Screenshot
-_Add a screenshot of your app here._
+<img width="994" height="517" alt="Screenshot1" src="https://github.com/user-attachments/assets/4a781303-6d92-434d-b1a6-bee1add0be84" />
+<img width="1002" height="518" alt="Screenshot2" src="https://github.com/user-attachments/assets/413ce2ed-c390-46de-b955-cb1048c83be7" />
+<img width="877" height="519" alt="Screenshot3" src="https://github.com/user-attachments/assets/3fb263fc-16cb-4293-a91d-fe91ba948d84" />
 
 ## Author
 Laiba Sarwar
