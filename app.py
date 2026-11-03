@@ -1,5 +1,9 @@
 import io
+import re
+import time
+from urllib.parse import quote
 
+import requests
 import streamlit as st
 from deep_translator import GoogleTranslator, MyMemoryTranslator
 from gtts import gTTS
@@ -136,17 +140,99 @@ def clear_all():
         st.session_state.pop(key, None)
 
 
+LINGVA_SERVERS = [
+    "https://lingva.ml",
+    "https://lingva.thedaviddelta.com",
+    "https://translate.plausibility.cloud",
+    "https://lingva.garudalinux.org",
+]
+
+
+def split_text(text, limit=900):
+    """Break long text into small pieces (some services accept short text only)."""
+    pieces = []
+    for paragraph in text.split("\n"):
+        sentences = re.split(r"(?<=[.!?\u061f\u06d4])\s+", paragraph)
+        current = ""
+        for sentence in sentences:
+            while len(sentence) > limit:
+                if current:
+                    pieces.append(current)
+                    current = ""
+                pieces.append(sentence[:limit])
+                sentence = sentence[limit:]
+            if len(current) + len(sentence) + 1 > limit and current:
+                pieces.append(current)
+                current = sentence
+            else:
+                current = f"{current} {sentence}".strip()
+        pieces.append(current)
+        pieces.append("\n")
+    if pieces and pieces[-1] == "\n":
+        pieces.pop()
+    return pieces
+
+
+def via_google(text, source_code, target_code):
+    for attempt in range(2):
+        try:
+            return GoogleTranslator(source=source_code, target=target_code).translate(text)
+        except Exception:
+            time.sleep(1.5)
+    raise RuntimeError("Google failed")
+
+
+def via_lingva(text, source_code, target_code):
+    for server in LINGVA_SERVERS:
+        try:
+            out = []
+            for piece in split_text(text):
+                if piece == "\n":
+                    out.append("\n")
+                    continue
+                if not piece.strip():
+                    continue
+                url = f"{server}/api/v1/{source_code}/{target_code}/{quote(piece, safe='')}"
+                response = requests.get(url, timeout=8)
+                response.raise_for_status()
+                out.append(response.json()["translation"])
+            return " ".join(out).replace(" \n ", "\n")
+        except Exception:
+            continue
+    raise RuntimeError("Lingva failed")
+
+
+def via_mymemory(text, source_name, target_name):
+    src = "english" if source_name == AUTO else source_name
+    out = []
+    for piece in split_text(text, limit=450):
+        if piece == "\n":
+            out.append("\n")
+            continue
+        if not piece.strip():
+            continue
+        out.append(MyMemoryTranslator(source=src, target=target_name).translate(piece))
+    return " ".join(out).replace(" \n ", "\n")
+
+
+@st.cache_data(show_spinner=False, ttl=3600)
 def translate_text(text, source_name, target_name):
-    """Try Google first. If it fails, use MyMemory as a backup."""
+    """Try Google, then Lingva, then MyMemory. Same text is cached for 1 hour."""
     source_code = "auto" if source_name == AUTO else languages[source_name]
     target_code = languages[target_name]
-    try:
-        result = GoogleTranslator(source=source_code, target=target_code).translate(text)
-        return result, "Google Translate"
-    except Exception:
-        src = "english" if source_name == AUTO else source_name
-        result = MyMemoryTranslator(source=src, target=target_name).translate(text)
-        return result, "MyMemory"
+
+    for service_name, run in (
+        ("Google Translate", lambda: via_google(text, source_code, target_code)),
+        ("Lingva", lambda: via_lingva(text, source_code, target_code)),
+        ("MyMemory", lambda: via_mymemory(text, source_name, target_name)),
+    ):
+        try:
+            result = run()
+            if result and result.strip():
+                return result, service_name
+        except Exception:
+            continue
+    raise RuntimeError("All translation services are busy")
 
 
 # ---------- Header ----------
@@ -207,10 +293,10 @@ if translate_clicked:
             st.session_state["result"] = result
             st.session_state["target_code"] = languages[st.session_state.tgt]
             st.session_state["used"] = used
-        except Exception as error:
+        except Exception:
             st.error(
-                "Translation failed. Please check your internet connection "
-                f"or try again in a moment. ({error})"
+                "The translation services are busy right now. "
+                "Please wait a minute and try again."
             )
 
 # ---------- Output (drawn in the right panel) ----------
